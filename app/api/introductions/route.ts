@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getOrgScoped } from "@/lib/auth";
 import { generateIntroPack } from "@/lib/intro-pack";
+import { generateIntroEmail } from "@/lib/intro-email";
 
 export async function GET() {
   try {
@@ -142,6 +143,23 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // Generate intro email
+    const { subject: emailSubject, body: emailBody } = generateIntroEmail(
+      match,
+      match.demandBrief,
+      match.inventory,
+      brandName,
+      introduction.id
+    );
+
+    const updatedIntro = await db.introduction.update({
+      where: { id: introduction.id },
+      data: {
+        introEmailSubject: emailSubject,
+        introEmailBody: emailBody,
+      },
+    });
+
     // Fetch updated cycle to return current counts
     const updatedCycle = await db.deliveryCycle.findUnique({
       where: { id: deliveryCycle.id },
@@ -149,7 +167,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(
       {
-        ...introduction,
+        ...updatedIntro,
         deliveryCycle: updatedCycle
           ? {
               deliveredCount: updatedCycle.deliveredCount,

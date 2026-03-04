@@ -26,6 +26,8 @@ import {
   X,
   AlertTriangle,
   Gauge,
+  Copy,
+  MailCheck,
 } from "lucide-react";
 
 interface MatchResult {
@@ -102,9 +104,13 @@ export function GenerateMatchesButton({
   const [generated, setGenerated] = useState(0);
   const [panelOpen, setPanelOpen] = useState(false);
   const [introLoading, setIntroLoading] = useState<string | null>(null);
-  const [introCreated, setIntroCreated] = useState<Set<string>>(new Set());
+  const [introData, setIntroData] = useState<
+    Map<string, { introId: string; emailSubject: string; emailBody: string; sent: boolean }>
+  >(new Map());
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
   const [introError, setIntroError] = useState<string | null>(null);
+  const [emailCopied, setEmailCopied] = useState<string | null>(null);
+  const [markingSent, setMarkingSent] = useState<string | null>(null);
 
   async function handleGenerate() {
     setLoading(true);
@@ -143,7 +149,16 @@ export function GenerateMatchesButton({
     setIntroLoading(null);
 
     if (res.ok) {
-      setIntroCreated((prev) => new Set(prev).add(matchId));
+      setIntroData((prev) => {
+        const next = new Map(prev);
+        next.set(matchId, {
+          introId: data.id,
+          emailSubject: data.introEmailSubject ?? "",
+          emailBody: data.introEmailBody ?? "",
+          sent: false,
+        });
+        return next;
+      });
       if (data.deliveryCycle) {
         setQuota({
           deliveredCount: data.deliveryCycle.deliveredCount,
@@ -159,6 +174,38 @@ export function GenerateMatchesButton({
           introQuota: data.introQuota,
         });
       }
+    }
+  }
+
+  async function handleCopyEmail(matchId: string) {
+    const data = introData.get(matchId);
+    if (!data) return;
+    const fullEmail = `Subject: ${data.emailSubject}\n\n${data.emailBody}`;
+    await navigator.clipboard.writeText(fullEmail);
+    setEmailCopied(matchId);
+    setTimeout(() => setEmailCopied(null), 2000);
+  }
+
+  async function handleMarkSent(matchId: string) {
+    const data = introData.get(matchId);
+    if (!data) return;
+    setMarkingSent(matchId);
+
+    const res = await fetch(`/api/introductions/${data.introId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ markSent: true }),
+    });
+
+    setMarkingSent(null);
+
+    if (res.ok) {
+      setIntroData((prev) => {
+        const next = new Map(prev);
+        next.set(matchId, { ...data, sent: true });
+        return next;
+      });
+      router.refresh();
     }
   }
 
@@ -351,12 +398,64 @@ export function GenerateMatchesButton({
                     )}
                   </CardContent>
 
-                  <CardFooter className="pt-0">
-                    {introCreated.has(result.matchId) ? (
-                      <p className="flex items-center gap-1.5 text-sm text-emerald-600">
-                        <CheckCircle className="h-4 w-4" />
-                        Introduction created
-                      </p>
+                  <CardFooter className="flex-col items-start gap-2 pt-0">
+                    {introData.has(result.matchId) ? (
+                      (() => {
+                        const intro = introData.get(result.matchId)!;
+                        return (
+                          <div className="w-full space-y-2">
+                            <p className="flex items-center gap-1.5 text-sm text-emerald-600">
+                              <CheckCircle className="h-4 w-4" />
+                              Introduction created
+                            </p>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  handleCopyEmail(result.matchId)
+                                }
+                              >
+                                {emailCopied === result.matchId ? (
+                                  <>
+                                    <CheckCircle className="mr-1.5 h-3 w-3 text-emerald-600" />
+                                    Copied
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="mr-1.5 h-3 w-3" />
+                                    Copy Intro Email
+                                  </>
+                                )}
+                              </Button>
+                              {intro.sent ? (
+                                <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                                  <MailCheck className="h-4 w-4 text-emerald-600" />
+                                  Sent
+                                </p>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    handleMarkSent(result.matchId)
+                                  }
+                                  disabled={
+                                    markingSent === result.matchId
+                                  }
+                                >
+                                  {markingSent === result.matchId ? (
+                                    <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <MailCheck className="mr-1.5 h-3 w-3" />
+                                  )}
+                                  Mark Intro Sent
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()
                     ) : result.status === "INTRO_SENT" ||
                       result.status === "MEETING_BOOKED" ? (
                       <p className="flex items-center gap-1.5 text-sm text-muted-foreground">

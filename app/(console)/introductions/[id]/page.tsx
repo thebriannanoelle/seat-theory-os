@@ -6,8 +6,9 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate } from "@/lib/utils";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Mail } from "lucide-react";
 import { IntroPackActions } from "./intro-pack-actions";
+import { IntroEmailActions } from "./intro-email-actions";
 
 const statusColors: Record<string, string> = {
   PENDING: "bg-gray-100 text-gray-800",
@@ -93,7 +94,7 @@ export default async function IntroductionDetailPage({
       </div>
 
       {/* Summary row */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -112,6 +113,20 @@ export default async function IntroductionDetailPage({
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">{formatDate(intro.createdAt)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Intro Sent
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">
+              {intro.introSentAt
+                ? formatDate(intro.introSentAt)
+                : "Not yet"}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -165,6 +180,48 @@ export default async function IntroductionDetailPage({
           <CardContent>
             <p className="text-sm text-muted-foreground">
               No Intro Pack has been generated for this introduction yet.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Intro Email */}
+      {intro.introEmailBody ? (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Mail className="h-5 w-5 text-muted-foreground" />
+              <CardTitle>Intro Email</CardTitle>
+            </div>
+            <IntroEmailActions
+              introId={intro.id}
+              subject={intro.introEmailSubject ?? ""}
+              body={intro.introEmailBody}
+              sent={intro.introSentAt !== null}
+            />
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <p className="mb-2 text-sm font-medium">
+                Subject: {intro.introEmailSubject}
+              </p>
+              <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                {intro.introEmailBody}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Mail className="h-5 w-5 text-muted-foreground" />
+              <CardTitle>Intro Email</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              No intro email has been generated for this introduction yet.
             </p>
           </CardContent>
         </Card>
