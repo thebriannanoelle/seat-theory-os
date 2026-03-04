@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate } from "@/lib/utils";
-import { ArrowLeft, Mail } from "lucide-react";
+import { ArrowLeft, Calendar, Mail } from "lucide-react";
 import { IntroPackActions } from "./intro-pack-actions";
 import { IntroEmailActions } from "./intro-email-actions";
 
@@ -226,6 +226,58 @@ export default async function IntroductionDetailPage({
           </CardContent>
         </Card>
       )}
+
+      {/* Meeting / Calendly */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Calendar className="h-5 w-5 text-muted-foreground" />
+            <CardTitle>Meeting</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {intro.status === "MEETING_BOOKED" ? (
+            <div className="flex items-center gap-2">
+              <Badge className="bg-green-100 text-green-800">Scheduled</Badge>
+              <span className="text-sm text-muted-foreground">
+                A meeting has been booked via Calendly.
+              </span>
+            </div>
+          ) : intro.status === "DECLINED" ? (
+            <div className="flex items-center gap-2">
+              <Badge className="bg-red-100 text-red-800">Canceled</Badge>
+              <span className="text-sm text-muted-foreground">
+                The meeting was canceled.
+              </span>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">Not scheduled</Badge>
+                <span className="text-sm text-muted-foreground">
+                  No meeting has been scheduled yet.
+                </span>
+              </div>
+              {intro.calendlySchedulingUrl && (
+                <a
+                  href={intro.calendlySchedulingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+                >
+                  <Calendar className="h-4 w-4" />
+                  Schedule meeting
+                </a>
+              )}
+            </div>
+          )}
+          {intro.calendlyEventId && (
+            <p className="text-xs text-muted-foreground">
+              Calendly Event: {intro.calendlyEventId}
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Notes */}
       {intro.notes && (

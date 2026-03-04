@@ -94,6 +94,14 @@ export async function PATCH(
       updateData.notes = body.notes;
     }
 
+    if (body.calendlySchedulingUrl !== undefined) {
+      updateData.calendlySchedulingUrl = body.calendlySchedulingUrl;
+    }
+
+    if (body.calendlyEventId !== undefined) {
+      updateData.calendlyEventId = body.calendlyEventId;
+    }
+
     const updated = await db.introduction.update({
       where: { id },
       data: updateData,

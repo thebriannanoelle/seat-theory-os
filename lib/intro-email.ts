@@ -44,7 +44,8 @@ export function generateIntroEmail(
   demandBrief: DemandBrief,
   inventory: Inventory,
   brandName: string,
-  introductionId: string
+  introductionId: string,
+  calendlyUrl?: string
 ): IntroEmail {
   const propertyName = inventory.propertyName;
 
@@ -119,7 +120,8 @@ export function generateIntroEmail(
   // Next step
   lines.push("**Suggested next step:** Let's get a 30-minute discovery call on the calendar to explore this together.");
   lines.push("");
-  lines.push("[Book a time on Calendly]({{CALENDLY_LINK}})");
+  const bookingLink = calendlyUrl ?? "{{CALENDLY_LINK}}";
+  lines.push(`[Book a time on Calendly](${bookingLink})`);
   lines.push("");
 
   lines.push("Happy to answer any questions in the meantime. Looking forward to making this connection.");

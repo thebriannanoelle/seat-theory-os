@@ -24,6 +24,99 @@ function verifyCalendlySignature(
   );
 }
 
+/**
+ * Two-tier matching: find an Introduction for the incoming Calendly event.
+ *
+ * 1. If `calendlyEventUri` is provided, look up by exact match on
+ *    `calendlyEventId` (pre-populated when booking link was set).
+ * 2. Fallback: match by invitee email + time window (±7 days of intro
+ *    creation) + org association through the match's demand brief.
+ */
+async function findIntroduction(payload: Record<string, unknown>) {
+  const inner = payload.payload as Record<string, unknown> | undefined;
+  const calendlyEventUri = inner?.event as string | undefined;
+
+  // Tier 1: exact event URI match
+  if (calendlyEventUri) {
+    const intro = await db.introduction.findFirst({
+      where: { calendlyEventId: calendlyEventUri },
+      include: {
+        match: {
+          include: {
+            demandBrief: { select: { createdByOrgId: true } },
+          },
+        },
+      },
+    });
+    if (intro) return intro;
+  }
+
+  // Tier 2: fallback — invitee email + time window + org
+  const invitee = (
+    inner?.invitee as Record<string, unknown> | undefined
+  );
+  const inviteeEmail = invitee?.email as string | undefined;
+
+  if (!inviteeEmail) return null;
+
+  // Look within a ±7 day window of the scheduled event start time
+  const scheduledEvent = inner?.scheduled_event as Record<string, unknown> | undefined;
+  const eventStartStr = scheduledEvent?.start_time as string | undefined;
+  const eventStart = eventStartStr ? new Date(eventStartStr) : new Date();
+
+  const windowStart = new Date(eventStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const windowEnd = new Date(eventStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+  // Find contacts that match the invitee email to resolve the org
+  const contacts = await db.contact.findMany({
+    where: { email: inviteeEmail },
+    select: { account: { select: { orgId: true } } },
+  });
+  const orgIds = [...new Set(contacts.map((c) => c.account.orgId))];
+
+  if (orgIds.length === 0) {
+    // Try matching any recent SENT introduction without org filter
+    const intro = await db.introduction.findFirst({
+      where: {
+        status: "SENT",
+        calendlyEventId: null,
+        createdAt: { gte: windowStart, lte: windowEnd },
+      },
+      include: {
+        match: {
+          include: {
+            demandBrief: { select: { createdByOrgId: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    return intro;
+  }
+
+  // Find introductions for those orgs in the time window
+  const intro = await db.introduction.findFirst({
+    where: {
+      status: "SENT",
+      calendlyEventId: null,
+      createdAt: { gte: windowStart, lte: windowEnd },
+      match: {
+        demandBrief: { createdByOrgId: { in: orgIds } },
+      },
+    },
+    include: {
+      match: {
+        include: {
+          demandBrief: { select: { createdByOrgId: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return intro;
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.text();
   const signature = req.headers.get("calendly-webhook-signature");
@@ -53,51 +146,51 @@ export async function POST(req: NextRequest) {
   try {
     switch (event) {
       case "invitee.created": {
-        const calendlyEventUri = payload.payload?.event;
+        const calendlyEventUri = payload.payload?.event as string | undefined;
+        const introduction = await findIntroduction(payload);
 
-        // Find the introduction by calendly event ID pattern
-        if (calendlyEventUri) {
-          const introduction = await db.introduction.findFirst({
-            where: { calendlyEventId: calendlyEventUri },
-            include: { match: true },
-          });
-
-          if (introduction) {
-            // Update introduction status
-            await db.introduction.update({
+        if (introduction) {
+          // Store the Calendly event URI and update status atomically
+          await db.$transaction([
+            db.introduction.update({
               where: { id: introduction.id },
-              data: { status: "MEETING_BOOKED" },
-            });
-
-            // Update match status
-            await db.match.update({
+              data: {
+                status: "MEETING_BOOKED",
+                calendlyEventId: calendlyEventUri ?? null,
+              },
+            }),
+            db.match.update({
               where: { id: introduction.matchId },
               data: { status: "MEETING_BOOKED" },
-            });
+            }),
+          ]);
 
-            // Create follow-up task
-            const match = introduction.match;
-            if (match.sharedOrgId) {
-              await db.task.create({
-                data: {
-                  title: `Follow up after meeting for match ${match.id}`,
-                  description:
-                    "Meeting has been booked via Calendly. Prepare talking points and follow up after the meeting.",
-                  status: "TODO",
-                  priority: "HIGH",
-                  orgId: match.sharedOrgId,
-                  relatedType: "Introduction",
-                  relatedId: introduction.id,
-                },
-              });
-            }
-          }
+          // Create follow-up task
+          const clientOrgId =
+            introduction.match.sharedOrgId ??
+            introduction.match.demandBrief.createdByOrgId;
+
+          await db.task.create({
+            data: {
+              title: `Follow up: meeting booked for ${introduction.id}`,
+              description:
+                "A meeting has been booked via Calendly. Prepare talking points and follow up after the meeting.",
+              status: "TODO",
+              priority: "HIGH",
+              orgId: clientOrgId,
+              relatedType: "Introduction",
+              relatedId: introduction.id,
+              dueDate: payload.payload?.scheduled_event?.start_time
+                ? new Date(payload.payload.scheduled_event.start_time)
+                : null,
+            },
+          });
         }
         break;
       }
 
       case "invitee.canceled": {
-        const calendlyEventUri = payload.payload?.event;
+        const calendlyEventUri = payload.payload?.event as string | undefined;
 
         if (calendlyEventUri) {
           const introduction = await db.introduction.findFirst({
@@ -105,15 +198,23 @@ export async function POST(req: NextRequest) {
           });
 
           if (introduction) {
-            await db.introduction.update({
-              where: { id: introduction.id },
-              data: { status: "PENDING" },
-            });
+            // Revert status based on whether the intro was previously sent
+            const revertStatus = introduction.introSentAt ? "SENT" : "PENDING";
 
-            await db.match.update({
-              where: { id: introduction.matchId },
-              data: { status: "INTRO_SENT" },
-            });
+            await db.$transaction([
+              db.introduction.update({
+                where: { id: introduction.id },
+                data: { status: revertStatus },
+              }),
+              db.match.update({
+                where: { id: introduction.matchId },
+                data: {
+                  status: introduction.introSentAt
+                    ? "INTRO_SENT"
+                    : "PROPOSED",
+                },
+              }),
+            ]);
           }
         }
         break;

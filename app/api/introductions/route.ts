@@ -101,6 +101,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Determine the Calendly scheduling URL (per-request or env default)
+    const calendlySchedulingUrl =
+      body.calendlySchedulingUrl ??
+      process.env.CALENDLY_DEFAULT_URL ??
+      null;
+
     // Atomic transaction: create introduction + increment delivered count + update match
     const introduction = await db.$transaction(async (tx) => {
       const intro = await tx.introduction.create({
@@ -108,6 +114,7 @@ export async function POST(req: NextRequest) {
           matchId,
           notes: notes ?? null,
           deliveryCycleId: deliveryCycle.id,
+          calendlySchedulingUrl,
         },
       });
 
@@ -149,7 +156,8 @@ export async function POST(req: NextRequest) {
       match.demandBrief,
       match.inventory,
       brandName,
-      introduction.id
+      introduction.id,
+      calendlySchedulingUrl ?? undefined
     );
 
     const updatedIntro = await db.introduction.update({
