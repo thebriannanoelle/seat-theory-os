@@ -26,6 +26,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Fetch delivery cycle for the client org tied to this brief
+    const clientOrgId = brief.createdByOrgId;
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const deliveryCycle = await db.deliveryCycle.findUnique({
+      where: { orgId_month: { orgId: clientOrgId, month: monthStart } },
+    });
+
     const inventories = await db.inventory.findMany();
     const matchResults = generateMatches(brief, inventories);
 
@@ -93,6 +101,12 @@ export async function POST(req: NextRequest) {
       generated: created.length,
       total: allResults.length,
       results: allResults,
+      quota: deliveryCycle
+        ? {
+            deliveredCount: deliveryCycle.deliveredCount,
+            introQuota: deliveryCycle.introQuota,
+          }
+        : null,
     });
   } catch {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

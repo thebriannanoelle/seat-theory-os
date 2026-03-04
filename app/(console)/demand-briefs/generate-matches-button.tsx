@@ -17,7 +17,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Shuffle, Send, CheckCircle, Loader2, Trophy, X } from "lucide-react";
+import {
+  Shuffle,
+  Send,
+  CheckCircle,
+  Loader2,
+  Trophy,
+  X,
+  AlertTriangle,
+  Gauge,
+} from "lucide-react";
 
 interface MatchResult {
   matchId: string;
@@ -30,6 +39,11 @@ interface MatchResult {
   dealSizeMax: number | null;
   status: string;
   alreadyExists: boolean;
+}
+
+interface QuotaInfo {
+  deliveredCount: number;
+  introQuota: number;
 }
 
 function formatReasonCode(code: string): string {
@@ -62,6 +76,21 @@ function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+function getQuotaStatus(quota: QuotaInfo): "on_track" | "at_risk" | "exceeded" {
+  if (quota.introQuota > 0 && quota.deliveredCount >= quota.introQuota) {
+    return "exceeded";
+  }
+  const day = new Date().getDate();
+  if (
+    day > 20 &&
+    quota.introQuota > 0 &&
+    quota.deliveredCount < quota.introQuota * 0.75
+  ) {
+    return "at_risk";
+  }
+  return "on_track";
+}
+
 export function GenerateMatchesButton({
   demandBriefId,
 }: {
@@ -74,10 +103,13 @@ export function GenerateMatchesButton({
   const [panelOpen, setPanelOpen] = useState(false);
   const [introLoading, setIntroLoading] = useState<string | null>(null);
   const [introCreated, setIntroCreated] = useState<Set<string>>(new Set());
+  const [quota, setQuota] = useState<QuotaInfo | null>(null);
+  const [introError, setIntroError] = useState<string | null>(null);
 
   async function handleGenerate() {
     setLoading(true);
     setResults(null);
+    setIntroError(null);
 
     const res = await fetch("/api/matches/generate", {
       method: "POST",
@@ -91,6 +123,7 @@ export function GenerateMatchesButton({
     if (res.ok) {
       setResults(data.results);
       setGenerated(data.generated);
+      setQuota(data.quota ?? null);
       setPanelOpen(true);
       router.refresh();
     }
@@ -98,6 +131,7 @@ export function GenerateMatchesButton({
 
   async function handleCreateIntro(matchId: string) {
     setIntroLoading(matchId);
+    setIntroError(null);
 
     const res = await fetch("/api/introductions", {
       method: "POST",
@@ -105,13 +139,31 @@ export function GenerateMatchesButton({
       body: JSON.stringify({ matchId, notes: "Created from match generation" }),
     });
 
+    const data = await res.json();
     setIntroLoading(null);
 
     if (res.ok) {
       setIntroCreated((prev) => new Set(prev).add(matchId));
+      if (data.deliveryCycle) {
+        setQuota({
+          deliveredCount: data.deliveryCycle.deliveredCount,
+          introQuota: data.deliveryCycle.introQuota,
+        });
+      }
       router.refresh();
+    } else if (res.status === 429 && data.code === "QUOTA_EXCEEDED") {
+      setIntroError(data.error);
+      if (data.introQuota != null) {
+        setQuota({
+          deliveredCount: data.deliveredCount,
+          introQuota: data.introQuota,
+        });
+      }
     }
   }
+
+  const quotaStatus = quota ? getQuotaStatus(quota) : null;
+  const quotaFull = quotaStatus === "exceeded";
 
   return (
     <>
@@ -141,7 +193,71 @@ export function GenerateMatchesButton({
                 </Badge>
               )}
             </DialogTitle>
+
+            {/* Quota progress bar */}
+            {quota && quota.introQuota > 0 && (
+              <div className="mt-3 rounded-lg border bg-card p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Gauge className="h-4 w-4 text-muted-foreground" />
+                    Monthly Quota
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm tabular-nums">
+                      {quota.deliveredCount} / {quota.introQuota}
+                    </span>
+                    {quotaStatus === "on_track" && (
+                      <Badge
+                        variant="secondary"
+                        className="bg-emerald-50 text-emerald-700"
+                      >
+                        On Track
+                      </Badge>
+                    )}
+                    {quotaStatus === "at_risk" && (
+                      <Badge
+                        variant="secondary"
+                        className="bg-amber-50 text-amber-700"
+                      >
+                        <AlertTriangle className="mr-1 h-3 w-3" />
+                        At Risk
+                      </Badge>
+                    )}
+                    {quotaStatus === "exceeded" && (
+                      <Badge
+                        variant="secondary"
+                        className="bg-red-50 text-red-700"
+                      >
+                        Quota Reached
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      quotaStatus === "exceeded"
+                        ? "bg-red-500"
+                        : quotaStatus === "at_risk"
+                          ? "bg-amber-500"
+                          : "bg-emerald-500"
+                    }`}
+                    style={{
+                      width: `${Math.min(100, (quota.deliveredCount / quota.introQuota) * 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </DialogHeader>
+
+          {/* Quota error banner */}
+          {introError && (
+            <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              {introError}
+            </div>
+          )}
 
           {results && results.length === 0 && (
             <div className="py-12 text-center">
@@ -253,7 +369,12 @@ export function GenerateMatchesButton({
                       <Button
                         size="sm"
                         onClick={() => handleCreateIntro(result.matchId)}
-                        disabled={introLoading === result.matchId}
+                        disabled={introLoading === result.matchId || quotaFull}
+                        title={
+                          quotaFull
+                            ? "Quota reached\u2014upgrade plan or wait until next cycle"
+                            : undefined
+                        }
                       >
                         {introLoading === result.matchId ? (
                           <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
