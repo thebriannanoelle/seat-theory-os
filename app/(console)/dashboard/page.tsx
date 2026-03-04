@@ -13,6 +13,7 @@ import {
   Target,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BrokerFunnelCard } from "./broker-funnel-card";
 
 async function getDashboardData(orgId: string) {
   const now = new Date();
@@ -132,6 +133,9 @@ export default async function DashboardPage() {
         <StatCard title="Deals in Negotiation" value={data.dealsCount} icon={DollarSign} />
         <StatCard title="Quota Progress" value={quotaProgress} icon={Target} />
       </div>
+
+      {/* Broker Funnel */}
+      <BrokerFunnelCard />
 
       <Card>
         <CardHeader>
