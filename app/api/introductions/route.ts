@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getOrgScoped } from "@/lib/auth";
+import { generateIntroPack } from "@/lib/intro-pack";
 
 export async function GET() {
   try {
@@ -45,11 +46,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Resolve the client org from the match's DemandBrief
+    // Resolve the client org from the match's DemandBrief (include full data for intro pack)
     const match = await db.match.findUnique({
       where: { id: matchId },
       include: {
-        demandBrief: { select: { createdByOrgId: true } },
+        demandBrief: {
+          include: {
+            createdByOrg: { select: { name: true } },
+          },
+        },
+        inventory: true,
       },
     });
 
@@ -115,6 +121,25 @@ export async function POST(req: NextRequest) {
       });
 
       return intro;
+    });
+
+    // Generate Intro Pack document
+    const brandName = match.demandBrief.createdByOrg.name;
+    const { title: packTitle, markdown } = generateIntroPack(
+      match,
+      match.demandBrief,
+      match.inventory,
+      brandName
+    );
+
+    await db.document.create({
+      data: {
+        title: packTitle,
+        content: markdown,
+        fileType: "intro_pack",
+        relatedType: "Introduction",
+        relatedId: introduction.id,
+      },
     });
 
     // Fetch updated cycle to return current counts

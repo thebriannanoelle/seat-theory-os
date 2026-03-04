@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { db } from "@/lib/db";
 import { getOrgScoped } from "@/lib/auth";
 import { PageHeader } from "@/components/page-header";
@@ -11,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { FileText } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   PENDING: "bg-gray-100 text-gray-800",
@@ -22,10 +24,11 @@ const statusColors: Record<string, string> = {
 };
 
 export default async function IntroductionsPage() {
-  let introductions: Awaited<ReturnType<typeof db.introduction.findMany>> = [];
+  let rawIntros: Awaited<ReturnType<typeof db.introduction.findMany>> = [];
+  let hasPackSet = new Set<string | null>();
   try {
     const { org } = await getOrgScoped();
-    introductions = await db.introduction.findMany({
+    rawIntros = await db.introduction.findMany({
       where: {
         match: {
           OR: [
@@ -46,6 +49,20 @@ export default async function IntroductionsPage() {
       },
       orderBy: { createdAt: "desc" },
     });
+
+    // Check which introductions have an intro pack document
+    const introIds = rawIntros.map((i) => i.id);
+    if (introIds.length > 0) {
+      const introPacks = await db.document.findMany({
+        where: {
+          relatedType: "Introduction",
+          relatedId: { in: introIds },
+          fileType: "intro_pack",
+        },
+        select: { relatedId: true },
+      });
+      hasPackSet = new Set(introPacks.map((d) => d.relatedId));
+    }
   } catch {
     // Not authenticated
   }
@@ -63,20 +80,21 @@ export default async function IntroductionsPage() {
             <TableHead>Demand Brief</TableHead>
             <TableHead>Property</TableHead>
             <TableHead>Status</TableHead>
+            <TableHead>Intro Pack</TableHead>
             <TableHead>Calendly</TableHead>
             <TableHead>Delivery Cycle</TableHead>
             <TableHead>Created</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {introductions.length === 0 ? (
+          {rawIntros.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-muted-foreground">
+              <TableCell colSpan={7} className="text-center text-muted-foreground">
                 No introductions yet.
               </TableCell>
             </TableRow>
           ) : (
-            introductions.map((intro) => {
+            rawIntros.map((intro) => {
               const i = intro as unknown as {
                 match: {
                   demandBrief: { title: string };
@@ -85,15 +103,32 @@ export default async function IntroductionsPage() {
                 deliveryCycle: { month: Date } | null;
               };
               return (
-                <TableRow key={intro.id}>
+                <TableRow key={intro.id} className="group">
                   <TableCell className="font-medium">
-                    {i.match.demandBrief.title}
+                    <Link
+                      href={`/introductions/${intro.id}`}
+                      className="hover:underline"
+                    >
+                      {i.match.demandBrief.title}
+                    </Link>
                   </TableCell>
                   <TableCell>{i.match.inventory.propertyName}</TableCell>
                   <TableCell>
                     <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[intro.status] ?? ""}`}>
                       {intro.status}
                     </span>
+                  </TableCell>
+                  <TableCell>
+                    {hasPackSet.has(intro.id) ? (
+                      <Link href={`/introductions/${intro.id}`}>
+                        <Badge variant="secondary" className="gap-1">
+                          <FileText className="h-3 w-3" />
+                          View
+                        </Badge>
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     {intro.calendlyEventId ? (

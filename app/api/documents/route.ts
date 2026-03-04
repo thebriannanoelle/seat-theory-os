@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
     const document = await db.document.create({
       data: {
         title: body.title,
+        content: body.content ?? null,
         url: body.url,
         fileType: body.fileType,
         relatedType: body.relatedType,

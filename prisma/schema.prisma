@@ -317,6 +317,7 @@ model Task {
 model Document {
   id          String   @id @default(cuid())
   title       String
+  content     String?
   url         String?
   fileType    String?  @map("file_type")
   relatedType String?  @map("related_type")
