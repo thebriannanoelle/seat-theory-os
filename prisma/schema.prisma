@@ -1,0 +1,340 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  OWNER
+  OPERATOR
+  CLIENT
+}
+
+enum AccountType {
+  BRAND
+  PROPERTY
+  AGENCY
+  TALENT
+}
+
+enum SignalType {
+  NEWS
+  SOCIAL
+  FILING
+  RUMOR
+  RESEARCH
+}
+
+enum MatchStatus {
+  DRAFT
+  PROPOSED
+  INTRO_SENT
+  MEETING_BOOKED
+  NEGOTIATING
+  CLOSED
+  LOST
+}
+
+enum Visibility {
+  INTERNAL
+  SHARED
+}
+
+enum IntroductionStatus {
+  PENDING
+  APPROVED
+  SENT
+  MEETING_BOOKED
+  COMPLETED
+  DECLINED
+}
+
+enum OpportunityStage {
+  QUALIFICATION
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+enum DeliveryCycleStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model Org {
+  id        String   @id @default(cuid())
+  clerkOrgId String? @unique @map("clerk_org_id")
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships     OrgMembership[]
+  accounts        Account[]
+  demandBriefs    DemandBrief[]
+  inventories     Inventory[]
+  sharedMatches   Match[]          @relation("SharedMatches")
+  deliveryCycles  DeliveryCycle[]
+  tasks           Task[]
+
+  @@map("orgs")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  clerkUserId String @unique @map("clerk_user_id")
+  email     String   @unique
+  firstName String?  @map("first_name")
+  lastName  String?  @map("last_name")
+  avatarUrl String?  @map("avatar_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships    OrgMembership[]
+  createdBriefs  DemandBrief[]
+  assignedTasks  Task[]
+
+  @@map("users")
+}
+
+model OrgMembership {
+  id     String @id @default(cuid())
+  role   Role
+  orgId  String @map("org_id")
+  userId String @map("user_id")
+
+  org  Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([orgId, userId])
+  @@map("org_memberships")
+}
+
+model Account {
+  id        String      @id @default(cuid())
+  name      String
+  type      AccountType
+  website   String?
+  industry  String?
+  orgId     String      @map("org_id")
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+
+  org      Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  contacts Contact[]
+
+  @@map("accounts")
+}
+
+model Contact {
+  id        String  @id @default(cuid())
+  firstName String  @map("first_name")
+  lastName  String  @map("last_name")
+  email     String?
+  phone     String?
+  title     String?
+  accountId String  @map("account_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("contacts")
+}
+
+model Signal {
+  id              String     @id @default(cuid())
+  type            SignalType
+  title           String
+  summary         String?
+  sourceUrl       String?    @map("source_url")
+  confidenceScore Int        @default(50) @map("confidence_score")
+  expiresAt       DateTime?  @map("expires_at")
+  visibility      Visibility @default(INTERNAL)
+  createdAt       DateTime   @default(now()) @map("created_at")
+
+  @@map("signals")
+}
+
+model DemandBrief {
+  id                     String   @id @default(cuid())
+  title                  String
+  goals                  String?
+  audienceTags           String[] @map("audience_tags")
+  geography              String?
+  budgetMin              Int?     @map("budget_min")
+  budgetMax              Int?     @map("budget_max")
+  categoryConstraints    String[] @map("category_constraints")
+  activationRequirements String?  @map("activation_requirements")
+  timelineStart          DateTime? @map("timeline_start")
+  timelineEnd            DateTime? @map("timeline_end")
+  createdByOrgId         String   @map("created_by_org_id")
+  createdByUserId        String?  @map("created_by_user_id")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  createdByOrg  Org   @relation(fields: [createdByOrgId], references: [id], onDelete: Cascade)
+  createdByUser User? @relation(fields: [createdByUserId], references: [id])
+  matches       Match[]
+
+  @@map("demand_briefs")
+}
+
+model Inventory {
+  id                 String   @id @default(cuid())
+  propertyName       String   @map("property_name")
+  categoryAvailable  String[] @map("category_available")
+  dealSizeMin        Int?     @map("deal_size_min")
+  dealSizeMax        Int?     @map("deal_size_max")
+  audienceTags       String[] @map("audience_tags")
+  assetsAvailable    String[] @map("assets_available")
+  contractExpiration DateTime? @map("contract_expiration")
+  ownerOrgId         String   @map("owner_org_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  ownerOrg Org     @relation(fields: [ownerOrgId], references: [id], onDelete: Cascade)
+  matches  Match[]
+
+  @@map("inventories")
+}
+
+model Match {
+  id            String      @id @default(cuid())
+  demandBriefId String      @map("demand_brief_id")
+  inventoryId   String      @map("inventory_id")
+  matchScore    Int         @default(0) @map("match_score")
+  reasonCodes   String[]    @map("reason_codes")
+  status        MatchStatus @default(DRAFT)
+  visibility    Visibility  @default(INTERNAL)
+  sharedOrgId   String?     @map("shared_org_id")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  demandBrief   DemandBrief    @relation(fields: [demandBriefId], references: [id], onDelete: Cascade)
+  inventory     Inventory      @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  sharedOrg     Org?           @relation("SharedMatches", fields: [sharedOrgId], references: [id])
+  introductions Introduction[]
+  opportunity   Opportunity?
+
+  @@map("matches")
+}
+
+model Introduction {
+  id                 String             @id @default(cuid())
+  matchId            String             @map("match_id")
+  status             IntroductionStatus @default(PENDING)
+  calendlyEventId    String?            @map("calendly_event_id")
+  deliveryCycleId    String?            @map("delivery_cycle_id")
+  notes              String?
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  match         Match          @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  deliveryCycle DeliveryCycle? @relation(fields: [deliveryCycleId], references: [id])
+
+  @@map("introductions")
+}
+
+model Opportunity {
+  id             String           @id @default(cuid())
+  matchId        String           @unique @map("match_id")
+  stage          OpportunityStage @default(QUALIFICATION)
+  estimatedValue Int?             @map("estimated_value")
+  probability    Int?             @default(0)
+  closeDate      DateTime?        @map("close_date")
+  notes          String?
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@map("opportunities")
+}
+
+model DeliveryCycle {
+  id             String              @id @default(cuid())
+  orgId          String              @map("org_id")
+  month          DateTime
+  introQuota     Int                 @default(0) @map("intro_quota")
+  deliveredCount Int                 @default(0) @map("delivered_count")
+  status         DeliveryCycleStatus @default(ACTIVE)
+  stripeSubId    String?             @map("stripe_sub_id")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  org           Org            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  introductions Introduction[]
+
+  @@unique([orgId, month])
+  @@map("delivery_cycles")
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  dueDate     DateTime?    @map("due_date")
+  orgId       String       @map("org_id")
+  assigneeId  String?      @map("assignee_id")
+  relatedType String?      @map("related_type")
+  relatedId   String?      @map("related_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  org      Org   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  assignee User? @relation(fields: [assigneeId], references: [id])
+
+  @@map("tasks")
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  title       String
+  url         String?
+  fileType    String?  @map("file_type")
+  relatedType String?  @map("related_type")
+  relatedId   String?  @map("related_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("documents")
+}
+
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  provider    String
+  externalId  String   @map("external_id")
+  eventType   String   @map("event_type")
+  payload     Json
+  processedAt DateTime? @map("processed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@unique([provider, externalId])
+  @@map("webhook_events")
+}
